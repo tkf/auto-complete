@@ -414,7 +414,7 @@
 (defun ac-ropemacs-candidates ()
   (mapcar (lambda (completion)
       (concat ac-prefix completion))
-    (rope-completions)))
+    (ac-ropemacs-call-with-error-check 'rope-completions)))
 
 (ac-define-source nropemacs
   '((candidates . ac-ropemacs-candidates)
@@ -437,7 +437,7 @@
           (destructuring-bind (name doc type) proposal
             (list (concat ac-prefix name) doc
                   (if type (substring type 0 1) nil))))
-        (rope-extended-completions)))
+        (ac-ropemacs-call-with-error-check 'rope-extended-completions)))
 
 (defun ac-eropemacs-document (item) (car  item))
 (defun ac-eropemacs-symbol   (item) (cadr item))
@@ -462,6 +462,21 @@
   (if (functionp 'rope-extended-completions)
       (ac-eropemacs-setup)
     (ac-nropemacs-setup)))
+
+(defvar ac-ropemacs-error-penalty-delay 0
+  "Time [sec] before the next completion after ropemacs reports error")
+
+(defvar ac-ropemacs-next-available-time 0)
+(make-variable-buffer-local 'ac-ropemacs-next-available-time)
+
+(defun ac-ropemacs-call-with-error-check (function)
+  (let* ((current (float-time))
+         (available (< ac-ropemacs-next-available-time current))
+         (ret (if available (apply function nil))))
+    (when (and available (not ret))
+      (setq ac-ropemacs-next-available-time
+            (+ current ac-ropemacs-error-penalty-delay)))
+    ret))
 
 ;;;; Not maintained sources
 
