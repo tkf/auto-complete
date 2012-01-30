@@ -409,44 +409,76 @@
 
 
 
-;;;; Not maintained sources
-
 ;; ropemacs
 
-(defvar ac-ropemacs-loaded nil)
-(defun ac-ropemacs-require ()
-  (with-no-warnings
-    (unless ac-ropemacs-loaded
-      (pymacs-load "ropemacs" "rope-")
-      (if (boundp 'ropemacs-enable-autoimport)
-          (setq ropemacs-enable-autoimport t))
-      (setq ac-ropemacs-loaded t))))
+(defun ac-ropemacs-candidates ()
+  (mapcar (lambda (completion)
+      (concat ac-prefix completion))
+    (ac-ropemacs-call-with-error-check 'rope-completions)))
+
+(ac-define-source nropemacs
+  '((candidates . ac-ropemacs-candidates)
+    (symbol     . "p")))
+
+(ac-define-source nropemacs-dot
+  '((candidates . ac-ropemacs-candidates)
+    (symbol     . "p")
+    (prefix     . c-dot)
+    (requires   . 0)))
+
+(defun ac-nropemacs-setup ()
+  (setq ac-sources (append '(ac-source-nropemacs
+                             ac-source-nropemacs-dot) ac-sources)))
+
+;; extended ropemacs
+
+(defun ac-eropemacs-candidates ()
+  (mapcar (lambda (proposal)
+          (destructuring-bind (name doc type) proposal
+            (list (concat ac-prefix name) doc
+                  (if type (substring type 0 1) nil))))
+        (ac-ropemacs-call-with-error-check 'rope-extended-completions)))
+
+(defun ac-eropemacs-document (item) (car  item))
+(defun ac-eropemacs-symbol   (item) (cadr item))
+
+(ac-define-source extended-ropemacs
+  '((candidates . ac-eropemacs-candidates)
+    (document   . ac-eropemacs-document)
+    (symbol     . ac-eropemacs-symbol)))
+
+(ac-define-source extended-ropemacs-dot
+  '((candidates . ac-eropemacs-candidates)
+    (document   . ac-eropemacs-document)
+    (symbol     . ac-eropemacs-symbol)
+    (prefix     . c-dot)
+    (requires   . 0)))
+
+(defun ac-eropemacs-setup ()
+  (setq ac-sources (append '(ac-source-extended-ropemacs
+                             ac-source-extended-ropemacs-dot) ac-sources)))
 
 (defun ac-ropemacs-setup ()
-  (ac-ropemacs-require)
-  ;(setq ac-sources (append (list 'ac-source-ropemacs) ac-sources))
-  (setq ac-omni-completion-sources '(("\\." ac-source-ropemacs))))
+  (if (functionp 'rope-extended-completions)
+      (ac-eropemacs-setup)
+    (ac-nropemacs-setup)))
 
-(defun ac-ropemacs-initialize ()
-  (autoload 'pymacs-apply "pymacs")
-  (autoload 'pymacs-call "pymacs")
-  (autoload 'pymacs-eval "pymacs" nil t)
-  (autoload 'pymacs-exec "pymacs" nil t)
-  (autoload 'pymacs-load "pymacs" nil t)
-  (add-hook 'python-mode-hook 'ac-ropemacs-setup)
-  t)
+(defvar ac-ropemacs-error-penalty-delay 0
+  "Time [sec] before the next completion after ropemacs reports error")
 
-(defvar ac-ropemacs-completions-cache nil)
-(defvar ac-source-ropemacs
-  '((init
-     . (lambda ()
-         (setq ac-ropemacs-completions-cache
-               (mapcar
-                (lambda (completion)
-                  (concat ac-prefix completion))
-                (ignore-errors
-                  (rope-completions))))))
-    (candidates . ac-ropemacs-completions-cache)))
+(defvar ac-ropemacs-next-available-time 0)
+(make-variable-buffer-local 'ac-ropemacs-next-available-time)
+
+(defun ac-ropemacs-call-with-error-check (function)
+  (let* ((current (float-time))
+         (available (< ac-ropemacs-next-available-time current))
+         (ret (if available (apply function nil))))
+    (when (and available (not ret))
+      (setq ac-ropemacs-next-available-time
+            (+ current ac-ropemacs-error-penalty-delay)))
+    ret))
+
+;;;; Not maintained sources
 
 ;; rcodetools
 
@@ -470,13 +502,13 @@
 ;;;; Default settings
 
 (defun ac-common-setup ()
-  (add-to-list 'ac-sources 'ac-source-filename))
+  (setq ac-sources (append '(ac-source-filename ac-source-yasnippet) ac-sources)))
 
 (defun ac-emacs-lisp-mode-setup ()
-  (setq ac-sources (append '(ac-source-features ac-source-functions ac-source-yasnippet ac-source-variables ac-source-symbols) ac-sources)))
+  (setq ac-sources (append '(ac-source-features ac-source-functions ac-source-variables ac-source-symbols) ac-sources)))
 
 (defun ac-cc-mode-setup ()
-  (setq ac-sources (append '(ac-source-yasnippet ac-source-gtags) ac-sources)))
+  (add-to-list 'ac-sources 'ac-source-gtags))
 
 (defun ac-ruby-mode-setup ())
 
@@ -490,7 +522,9 @@
   (add-hook 'ruby-mode-hook 'ac-ruby-mode-setup)
   (add-hook 'css-mode-hook 'ac-css-mode-setup)
   (add-hook 'auto-complete-mode-hook 'ac-common-setup)
+  (add-hook 'python-mode-hook 'ac-ropemacs-setup)
   (global-auto-complete-mode t))
 
 (provide 'auto-complete-config)
 ;;; auto-complete-config.el ends here
+
